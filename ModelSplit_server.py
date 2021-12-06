@@ -10,9 +10,9 @@ from scipy import stats
 import numpy as np
 from Common.Model.LeNet import LeNet
 from crab.metrics.pairwise import adjusted_cosine
-from mpc_clustering.mpc_dbscan import *
+#from mpc_clustering.mpc_dbscan import *
 import time
-
+import subprocess
 from crypten.mpc import MPCTensor
 import crypten
 import crypten.mpc as mpc
@@ -33,8 +33,7 @@ class ClearFLGuardServer(FlGrpcServer):
         #rst,#id = super().process(dict_data=data_dict, handler=self.handler.computation)
         #if
         rst, split_label = super().process(dict_data=data_dict, handler=self.handler.computation)
-        print(rst)
-        print(split_label)
+
         num_groups = len(split_label)
         for i in range(num_groups):
             if request.id in split_label[i]:
@@ -48,52 +47,84 @@ class FLGuardGradientHandler(Handler):
         self.f = f
         self.weights = weights
         self.lambdaa = 0.001
-        #self.cluster = hdbscan.HDBSCAN(metric='l2', min_cluster_size=2, allow_single_cluster=True, min_samples=1, cluster_selection_epsilon=0.1)
 
-    # @mpc.run_multiprocess(world_size=1)
-    # def computation(self, data_in):
-    #     weights_in = np.array(data_in).reshape((self.num_workers, -1))
-    #     weights_in_mpc = torch.from_numpy(np.divide(weights_in, 10))
-    #
-    #     nc = weights_in_mpc.shape[0]
-    #     data_enc = MPCTensor(weights_in_mpc, ptype=crypten.mpc.arithmetic)
-    #     distance_matrix = torch.ones((nc, nc))
-    #     distance_enc = MPCTensor(distance_matrix, ptype=crypten.mpc.arithmetic)
-    #     cos = crypten.nn.CosineSimilarity(dim=0, eps=1e-6)
-    #     for i in range(nc - 1):
-    #         for j in range(i + 1, nc):
-    #             distance_enc[i, j] = cos(data_enc[i], data_enc[j])
-    #             distance_enc[j, i] = distance_enc[i, j]
-    #
-    #     label = dbscan(distance_enc, eps=0.2, min_points=2)
-    #
-    #     label = np.array(label).squeeze()
-    #
-    #     split_label = []
-    #     if (label == -1).all():
-    #         split_label = [[i for i in range(self.num_workers)]]
-    #     else:
-    #         label_elements = np.unique(label)
-    #         for i in label_elements.tolist():
-    #             split_label.append(np.where(label == i)[0].tolist())
-    #         # b = np.where(label == 0)[0].tolist()
-    #     # euclidean distance between self.weights and clients' weights
-    #     weight_agg = []
-    #     weights_in_mpc = torch.from_numpy(weights_in)
-    #     for b in split_label:
-    #         weights_enc = MPCTensor(weights_in_mpc[b], ptype=crypten.mpc.arithmetic)
-    #         weight_agg.append(weights_enc.mean(dim=0).get_plain_text().numpy())
-    #     #self.weights = weight_agg
-    #
-    #     weight_agg = np.array(weight_agg).flatten()
-    #     print(split_label)
-    #     print(weight_agg)
-    #     return weight_agg
 
     def computation(self, data_in):
         # cluster
         weights_in = np.array(data_in).reshape((self.num_workers, -1))
-        weights_in_mpc = torch.from_numpy(np.divide(weights_in, 10))
+        tic_cluster = time.time()
+        ##################################################################
+        np.savetxt('Player-Data/Input-P0-0', weights_in, fmt='%s', delimiter=' ')
+        UNCLASSIFIED = False
+        NOISE = -1
+
+        def _region_query(point_id, eps, n_points, distance_enc):
+            seeds = [point_id]
+            for i in range(n_points):
+                if i == point_id:
+                    continue
+                if (distance_enc[point_id, i] == 1):
+                    seeds.append(i)
+            return seeds
+
+        def _expand_cluster(classifications, point_id, cluster_id, eps, min_points, n_points, distance_enc):
+            seeds = _region_query(point_id, eps, n_points, distance_enc)
+            if len(seeds) < min_points:
+                classifications[point_id] = NOISE
+                return False
+            else:
+                classifications[point_id] = cluster_id
+                for seed_id in seeds:
+                    classifications[seed_id] = cluster_id
+
+                while len(seeds) > 0:
+                    current_point = seeds[0]
+                    results = _region_query(current_point, eps, n_points, distance_enc)
+                    if len(results) >= min_points:
+                        for i in range(0, len(results)):
+                            result_point = results[i]
+                            if classifications[result_point] == UNCLASSIFIED or \
+                                    classifications[result_point] == NOISE:
+                                if classifications[result_point] == UNCLASSIFIED:
+                                    seeds.append(result_point)
+                                classifications[result_point] = cluster_id
+                    seeds = seeds[1:]
+                return True
+
+        def dbscan(m, eps, min_points):
+            cluster_id = 1
+            n_points = dismension
+            classifications = [UNCLASSIFIED] * n_points
+
+            for point_id in range(0, n_points):
+                if (classifications[point_id] == UNCLASSIFIED):
+                    if (_expand_cluster(classifications, point_id, cluster_id, eps, min_points, n_points, m)):
+                        cluster_id = cluster_id + 1
+
+            return classifications
+        tic_subpro = time.time()
+        subprocess.run(['Scripts/ring.sh', 'distance -OF Player-Data/'])
+        toc_subpro = time.time()
+        print('subprocess time: ',toc_subpro - tic_subpro)
+        distance = np.loadtxt('Player-Data/-P0-0', dtype=np.str_, encoding='utf-8')
+        dismension = 10
+        distance_temp = []
+        for i in distance:
+            i = i.strip('[[')
+            i = i.strip('[')
+            i = i.strip(']]')
+            i = i.strip(']')
+            i = i.strip(',')
+            i = i.strip('],')
+            distance_temp.append(int(i))
+
+        distance_temp = np.array(distance_temp)
+        edis = distance_temp.reshape((dismension, dismension))
+
+        labels = dbscan(edis, eps=0.5, min_points=2)
+        toc_cluster = time.time()
+        print('clustering time:', toc_cluster-tic_cluster)
+        ##################################################################
         # weights_in_average = np.mean(weights_in,axis=0)
         # distance_matrix = 1 - adjusted_cosine(weights_in,weights_in,weights_in_average)
 
@@ -102,25 +133,26 @@ class FLGuardGradientHandler(Handler):
         # self.cluster.fit(distance_matrix)
         # label = self.cluster.labels_
         #
-        # split_label = []
-        # if (label == -1).all():
-        #     split_label = [[i for i in range(self.num_workers)]]
-        # else:
-        #     label_elements = np.unique(label)
-        #     for i in label_elements.tolist():
-        #         split_label.append(np.where(label == i)[0].tolist())
-        #     #b = np.where(label == 0)[0].tolist()
-        # # euclidean distance between self.weights and clients' weights
-        # weight_agg = []
-        #
-        # for b in split_label:
-        #      weight_agg.append(np.mean(weights_in[b], axis=0))
-        #
+
+        label = np.array(labels)
+        split_label = []
+        if (label == -1).all():
+            split_label = [[i for i in range(self.num_workers)]]
+        else:
+            label_elements = np.unique(label)
+            for i in label_elements.tolist():
+                split_label.append(np.where(label == i)[0].tolist())
+            #b = np.where(label == 0)[0].tolist()
+        # euclidean distance between self.weights and clients' weights
+        weight_agg = []
+        print(split_label)
+        for b in split_label:
+             weight_agg.append(np.mean(weights_in[b], axis=0))
+
         # #self.weights = weight_agg
         #
-        # weight_agg = np.array(weight_agg).flatten()
-        weight_agg, split_label = mpc_dbscan(weights_in_mpc)
-        print(weight_agg, split_label)
+        weight_agg = np.array(weight_agg).flatten()
+
         return weight_agg, split_label
 
 if __name__ == "__main__":

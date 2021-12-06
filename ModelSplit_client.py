@@ -23,7 +23,7 @@ class ClearFLGuardClient(WorkerBaseV2):
         self.grad_stub = grad_stub
 
     def update(self):
-        if self.client_id < 5:
+        if self.client_id < 2:
             weights = super().get_weights()
 
         else:
