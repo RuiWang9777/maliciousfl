@@ -1,0 +1,48 @@
+import numpy as np
+from Compiler.mpc_math import sqrt
+
+
+nc = 10
+nw = 44426
+
+data_mpc = sfix.Matrix(nc,nw)
+data_mpc.input_from(0)
+
+
+distance = sfix.Matrix(nc,nc)
+distance.assign_all(0)
+
+def _dist(p, q):
+    aa = p-q
+    return sqrt(sum(sfix.dot_product(aa,aa)))
+
+@for_range_opt([nc, nc])
+def f(i, j):
+     @if_ ((i<j))
+     def _():
+             numerator = sum(sfix.dot_product(data_mpc[i][:],data_mpc[j][:]))
+             denominator = sqrt(sum(sfix.dot_product(data_mpc[i][:],data_mpc[i][:]))) * sqrt(sum(sfix.dot_product(data_mpc[j][:],data_mpc[j][:])))
+             distance[i][j] = numerator / denominator
+             distance[i][j] = 1 - distance[i][j]
+             distance[j][i] = distance[i][j]
+
+eps = 0.5
+
+distance_enc = sfix.Matrix(nc,nc)
+distance_enc.assign_all(0)
+indicator = cint.Matrix(nc,nc)
+indicator.assign_all(1)
+
+@for_range_opt([nc, nc])
+def f(i, j):
+     @if_ ((i<j))
+     def _():
+            distance_enc[i][j] = _dist(distance[i][:], distance[j][:])
+            @if_((distance_enc[i][j] > eps).reveal())
+            def _():
+                indicator[i][j] = cint(0)
+                indicator[j][i] = indicator[i][j]
+            distance_enc[j][i] = distance_enc[i][j]
+
+print_ln('%s', indicator.reveal_nested())
+

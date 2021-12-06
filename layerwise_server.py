@@ -34,13 +34,13 @@ class FLGuardGradientHandler(Handler):
         self.f = f
         self.weights = weights
         self.lambdaa = 0.001
-        self.cluster = hdbscan.HDBSCAN(metric='precomputed')
+        self.cluster = hdbscan.HDBSCAN(metric='precomputed', allow_single_cluster=True, min_cluster_size=2, min_samples=1)
 
     def computation(self, data_in):
         # cluster
         weights_in = np.array(data_in).reshape((self.num_workers, -1))
         ####################################################################################################
-        layerslen=[]
+        layerslen = []
         for p in model.parameters():
             if p.requires_grad:
                 layerslen.append(p.numel())
@@ -65,7 +65,7 @@ class FLGuardGradientHandler(Handler):
                     if value != -1:
                         bucket[value] += 1
                 majority = np.argmax(bucket)
-                b = np.where(label == majority).tolist()
+                b = np.where(label == majority).tolist()  #filter out 0, -1
             # euclidean distance between self.weights and clients' weights
             edis = []
             for i in range(self.num_workers):
@@ -82,11 +82,11 @@ class FLGuardGradientHandler(Handler):
             count += 1
         weight_agg = np.hstack((z for z in weight_agg))
         self.weights = weight_agg
-        return weight_agg
+        return weight_agg.tolist()
 
 
 if __name__ == "__main__":
-    PATH = './Model/LeNet'
+    PATH = 'Model/LeNet'
     device = torch.device('cpu' if torch.cuda.is_available() else 'cpu')
     model = LeNet().to(device)
     #model = models.resnet18().to(device)

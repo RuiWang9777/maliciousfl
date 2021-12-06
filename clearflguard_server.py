@@ -12,6 +12,7 @@ import torch
 from Common.Model.LeNet import LeNet
 
 
+
 class ClearFLGuardServer(FlGrpcServer):
     def __init__(self, address, port, config, handler):
         super(ClearFLGuardServer, self).__init__(config=config)
@@ -34,7 +35,7 @@ class FLGuardGradientHandler(Handler):
         self.f = f
         self.weights = weights
         self.lambdaa = 0.001
-        self.cluster = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=2)
+        self.cluster = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=6, allow_single_cluster=True)
 
     def computation(self, data_in):
         # cluster
@@ -51,8 +52,7 @@ class FLGuardGradientHandler(Handler):
                 if value != -1:
                     bucket[value] += 1
             majority = np.argmax(bucket)
-            b = np.array(np.where(label == majority))
-            b = b.reshape(b.shape[1],).tolist()
+            b = np.where(label == majority)[0].tolist()
         # euclidean distance between self.weights and clients' weights
         edis = []
         for i in range(self.num_workers):
@@ -61,16 +61,15 @@ class FLGuardGradientHandler(Handler):
         St = np.median(np.array(edis))
         for i in range(len(b)):
             weights_in[b[i]] = weights_in[b[i]] * min(1, St/edis[b[i]])
-        
-        weightstar = np.sum(weights_in[b], axis=0) / len(b)
+
+        weightstar = np.mean(weights_in[b], axis=0)
         delta = self.lambdaa * St
         weight_agg = weightstar + np.random.normal(0, delta, weightstar.shape)
         self.weights = weight_agg
         return weight_agg.tolist()
 
-
 if __name__ == "__main__":
-    PATH = './Model/LeNet'
+    PATH = 'Model/LeNet'
     device = torch.device('cpu' if torch.cuda.is_available() else 'cpu')
     model = LeNet().to(device)
     model.load_state_dict(torch.load(PATH))

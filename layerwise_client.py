@@ -1,4 +1,5 @@
 from Common.Node.workerbase import WorkerBase
+from Common.Node.workerbasev2 import WorkerBaseV2
 from Common.Grpc.fl_grpc_pb2 import GradRequest_float
 import torch
 from torch import nn
@@ -16,7 +17,7 @@ from Common.Grpc.fl_grpc_pb2_grpc import FL_GrpcStub
 import numpy as np
 import torchvision.models as models
 
-class ClearDenseClient(WorkerBase):
+class ClearDenseClient(WorkerBaseV2):
     def __init__(self, client_id, model, loss_func, train_iter, test_iter, config, optimizer, device, grad_stub):
         super(ClearDenseClient, self).__init__(model=model, loss_func=loss_func, train_iter=train_iter,
                                                test_iter=test_iter, config=config, optimizer=optimizer, device=device)
@@ -24,14 +25,14 @@ class ClearDenseClient(WorkerBase):
         self.grad_stub = grad_stub
 
     def update(self):
-        if self.client_id < 1:
-             gradients = super().get_gradients()
+        if self.client_id < 4:
+             weights = super().get_weights()
         else:
-             gradients = np.random.normal(0, 0.1, self._grad_len).tolist()
+             weights = np.random.normal(0, 0.1, self._weights_len).tolist()
 
-        res_grad_upd = self.grad_stub.UpdateGrad_float.future(GradRequest_float(id=self.client_id, grad_ori=gradients))
+        res_grad_upd = self.grad_stub.UpdateGrad_float.future(GradRequest_float(id=self.client_id, grad_ori=weights))
 
-        super().set_gradients(gradients=res_grad_upd.result().grad_upd)
+        super().set_weights(weights=res_grad_upd.result().grad_upd)
 
 
 if __name__ == '__main__':
@@ -43,7 +44,7 @@ if __name__ == '__main__':
         device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     yaml_path = 'Log/log.yaml'
     setup_logging(default_path=yaml_path)
-    PATH = './Model/LeNet'
+    PATH = 'Model/LeNet'
     model = LeNet().to(device)
     #model = ResNet(BasicBlock, [3,3,3]).to(device)
     #model = models.resnet18().to(device)

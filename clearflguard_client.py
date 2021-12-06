@@ -23,14 +23,10 @@ class ClearFLGuardClient(WorkerBaseV2):
         self.grad_stub = grad_stub
 
     def update(self):
-        if self.client_id < 7:
+        if self.client_id < 2:
             weights = super().get_weights()
-            #gradients = super().get_gradients()
         else:
             weights = np.random.normal(0, 0.1, self._weights_len).tolist()
-            #gradients = np.random.normal(0, 0.1, self._grad_len).tolist()
-        # if self.client_id == 0:
-        #     print(len(gradients))
 
         res_grad_upd = self.grad_stub.UpdateGrad_float(GradRequest_float(id=self.client_id, grad_ori=weights))
 
@@ -47,7 +43,7 @@ if __name__ == '__main__':
     yaml_path = 'Log/log.yaml'
     setup_logging(default_path=yaml_path)
 
-    PATH = './Model/LeNet'
+    PATH = 'Model/LeNet'
     model = LeNet().to(device)
     model.load_state_dict(torch.load(PATH))
     if args.id == 0:

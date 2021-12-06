@@ -2,9 +2,9 @@ import logging
 import torch
 import time
 from abc import ABCMeta, abstractmethod
-
+import numpy as np
 from torch._C import device
-
+from Common.Utils.options import args_parser
 from Common.Utils.evaluate import evaluate_accuracy
 
 logger = logging.getLogger('client.workerbase')
@@ -13,10 +13,10 @@ logger = logging.getLogger('client.workerbase')
 This is the worker for sharing the local weights.
 '''
 class WorkerBaseV2(metaclass=ABCMeta):
-    def __init__(self, model, loss_func, train_iter, test_iter, config, optimizer, device):
+    def __init__(self, model, loss_func, train_iter, test_iter, config, optimizer, device, num_model_params):
         self.model = model
         self.loss_func = loss_func
-
+        self.num_model_params = num_model_params
         self.train_iter = train_iter
         self.test_iter = test_iter
 
@@ -76,6 +76,7 @@ class WorkerBaseV2(metaclass=ABCMeta):
 
         idx = 0
         for param in self.model.parameters():
+
             tmp = self._weights[self._level_length[idx]:self._level_length[idx + 1]]
             weights_re = torch.tensor(tmp, device=self.device)
             weights_re = weights_re.view(param.data.size())
@@ -118,6 +119,7 @@ class WorkerBaseV2(metaclass=ABCMeta):
                   % (train_l_sum / batch_count, train_acc_sum / n, test_acc, time.time() - start))
 
     def fl_train(self, times):
+
         self.acc_record = [0]
         counts = 0
         for epoch in range(self.config.num_epochs):
@@ -140,7 +142,35 @@ class WorkerBaseV2(metaclass=ABCMeta):
                     continue
 
                 loss, y_hat = self.train_step(X, y)
+
                 self.update()
+
+                # train_l_sum += loss
+                # train_acc_sum += (y_hat.argmax(dim=1) == y).sum().cpu().item()
+                # n += y.shape[0]
+                # batch_count += 1
+
+                # num_models = int(len(self._weights) / self.num_model_params)
+                #
+                # temp_weights = []
+                # for i in range(num_models):
+                #     temp_weights.append(self._weights[i*self.num_model_params:(i+1)*self.num_model_params])
+                # test_acc = []
+                # for i in range(num_models):
+                #     self._weights = temp_weights[i]
+                #     self.upgrade()
+                #     test_acc += [evaluate_accuracy(self.test_iter, self.model)]
+                #
+                #         #self.acc_record += [test_acc]
+                #       #   print('epoch %d, loss %.4f, train acc %.3f, test acc %.3f, time %.1f sec'
+                #       # % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n, test_acc, time.time() - start))
+                # if args_parser().id == 0:
+                #     print(test_acc)
+                # model_index = np.argmax(test_acc)
+                # self._weights = temp_weights[model_index]
+                # self.upgrade()
+                # if args_parser().id == 0:
+                #    print(test_acc[model_index])
                 self.upgrade()
                 train_l_sum += loss
                 train_acc_sum += (y_hat.argmax(dim=1) == y).sum().cpu().item()
@@ -150,8 +180,8 @@ class WorkerBaseV2(metaclass=ABCMeta):
                 if self.test_iter != None:
                     test_acc = evaluate_accuracy(self.test_iter, self.model)
                     self.acc_record += [test_acc]
-                    print('epoch %d, loss %.4f, train acc %.3f, test acc %.3f, time %.1f sec'
-                  % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n, test_acc, time.time() - start))
+                    print(args_parser().id,'epoch %d, loss %.4f, train acc %.3f, test acc %.3f, time %.1f sec'
+                          % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n, test_acc, time.time() - start))
 
     def write_acc_record(self, fpath, info):
         s = ""

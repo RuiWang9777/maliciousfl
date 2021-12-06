@@ -1,4 +1,5 @@
 from Common.Node.workerbase import WorkerBase
+from Common.Node.workerbasev2 import WorkerBaseV2
 from Common.Grpc.fl_grpc_pb2 import GradRequest_float
 import torch
 from torch import nn
@@ -15,22 +16,24 @@ from Common.Grpc.fl_grpc_pb2_grpc import FL_GrpcStub
 
 import numpy as np 
 
-class ClearDenseClient(WorkerBase):
-    def __init__(self, client_id, model, loss_func, train_iter, test_iter, config, optimizer, device, grad_stub):
+class ClearDenseClient(WorkerBaseV2):
+    def __init__(self, client_id, model, loss_func, train_iter, test_iter, config, optimizer, device, grad_stub,num_model_params):
         super(ClearDenseClient, self).__init__(model=model, loss_func=loss_func, train_iter=train_iter,
-                                               test_iter=test_iter, config=config, optimizer=optimizer, device=device)
+                                               test_iter=test_iter, config=config, optimizer=optimizer, device=device,num_model_params=num_model_params)
         self.client_id = client_id
         self.grad_stub = grad_stub
 
     def update(self):
         if self.client_id < 10:
-             gradients = super().get_gradients()
+             #gradients = super().get_gradients()
+             weights = super().get_weights()
         else:
-             gradients = np.random.normal(0, 0.1, self._grad_len).tolist()
+             #gradients = np.random.normal(0, 0.1, self._grad_len).tolist()
+             weights = np.random.normal(0, 0.1, self._weights_len).tolist()
 
-        res_grad_upd = self.grad_stub.UpdateGrad_float.future(GradRequest_float(id=self.client_id, grad_ori=gradients))
+        res_grad_upd = self.grad_stub.UpdateGrad_float.future(GradRequest_float(id=self.client_id, grad_ori=weights))
 
-        super().set_gradients(gradients=res_grad_upd.result().grad_upd)
+        super().set_weights(weights=res_grad_upd.result().grad_upd)
 
 
 if __name__ == '__main__':
@@ -50,7 +53,7 @@ if __name__ == '__main__':
     if args.id == 0:
         train_iter, test_iter = load_data_mnist(id=args.id, batch = args.batch_size, path = args.path)
     else:
-        train_iter, test_iter = load_data_mnist(id=args.id, batch = args.batch_size, path = args.path), None
+        train_iter, test_iter = load_data_mnist(id=args.id, batch = args.batch_size, path = args.path)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_func = nn.CrossEntropyLoss()
 
@@ -61,9 +64,9 @@ if __name__ == '__main__':
         print(args.id)
         grad_stub = FL_GrpcStub(grad_channel)
         print(device)
-
+        num_model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         client = ClearDenseClient(client_id=args.id, model=model, loss_func=loss_func, train_iter=train_iter,
-                                  test_iter=test_iter, config=config, optimizer=optimizer, device=device, grad_stub=grad_stub)
+                                  test_iter=test_iter, config=config, optimizer=optimizer, device=device, grad_stub=grad_stub, num_model_params=num_model_params)
 
         client.fl_train(times=args.E)
         client.write_acc_record(fpath="Eva/clear_avg_acc_test_mnist.txt", info="clear_avg_acc_worker_test")
